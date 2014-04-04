@@ -1,33 +1,3 @@
-/*-
- * Copyright (C) 2011, Romain Tartière
- * Copyright (C) 2013, JiapengLi
- *
- * This program is free software: you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as published by the
- * Free Software Foundation, either version 3 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
- */
-
-/*
- * This implementation was written based on information provided by the
- * following documents:
- *
- * NFC Forum SNEP and LLCP specfication
- * 
- * Version 1 - 2013-12-04 - Modified By JiapengLi<gapleehit@gmail.com>
- *
- * http://www.nfc-forum.org/specs/
- * 
- */
-
 /*
  * $Id$
  */
@@ -45,6 +15,8 @@
 #include <llc_link.h>
 #include <mac.h>
 #include <llc_connection.h>
+
+#define MAX_PACKET_LENGTH 100
 
 struct mac_link *mac_link;
 nfc_device *device;
@@ -79,11 +51,13 @@ shexdump(char *dest, const uint8_t *buf, const size_t size)
 FILE *info_stream = NULL;
 FILE *ndef_stream = NULL;
 
-static void *
-com_android_snep_thread(void *arg)
+
+int
+receive_first_frame(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t buffer[1024], frame[1024];
+  uint8_t buffer[107];
+  int ndef_length;
 
   int len;
   if ((len = llc_connection_recv(connection, buffer, sizeof(buffer), NULL)) < 0)
@@ -99,46 +73,128 @@ com_android_snep_thread(void *arg)
   if (buffer[n++] != 0x10){
     printf("snep-server is developed to support snep version 1.0, version %d.%d may be not supported.\n", (buffer[0]>>4), (buffer[0]&0x0F));
   }
-  switch(buffer[1]){
-    case 0x00:      /** Continue */
-      break;
-    case 0x01:      /** GET */
-      break;
-    case 0x02:      /** PUT */
-      {
-        uint32_t ndef_length = be32toh(*((uint32_t *)(buffer + 2)));  // NDEF length
-        if ((len - 6) < ndef_length)
-          return NULL; // Less received bytes than expected ?
 
-        /** return snep success response package */
-        frame[0] = 0x10;    /** SNEP version */
-        frame[1] = 0x81;
-        frame[2] = 0;
-        frame[3] = 0;
-        frame[4] = 0;
-        frame[5] = 0;
-        llc_connection_send(connection, frame, 6);
+  char ndef_msg[101];
+  shexdump(ndef_msg, buffer + 6, ndef_length);
+  fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length, ndef_msg);
 
-        char ndef_msg[1024];
-        shexdump(ndef_msg, buffer + 6, ndef_length);
-        fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length, ndef_msg);
+  return buffer[5];
+}
 
-        if (ndef_stream) {
-          if (fwrite(buffer + 6, 1, ndef_length, ndef_stream) != ndef_length) {
-            fprintf(stderr, "Could not write to file.\n");
-            fclose(ndef_stream);
-            ndef_stream = NULL;
-          } else {
-            fclose(ndef_stream);
-            ndef_stream = NULL;
-          }
-        }
-      }
-      break;
+int
+receive_data(void *arg, int len)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buffer[107];
+  int rec_len;
+  int ndef_length;
+  int data_len = len - MAX_PACKET_LENGTH;
+  
+  while(data_len>0)
+  {
+      llc_connection_recv(connection, buffer, sizeof(buffer), NULL);
+      data_len-=MAX_PACKET_LENGTH;
+      size_t n = 0;
+      char ndef_msg[101];
+      shexdump(ndef_msg, buffer + 6, ndef_length);
+      fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length, ndef_msg);
   }
 
-  // TODO Stop the LLCP when this is reached
+  return NULL;
+}
+
+
+static void *
+send_continue_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[1024];
+  
+  /** return snep continue response package */
+  frame[0] = 0x10;    /** SNEP version */
+  frame[1] = 0x80;
+  frame[2] = 0;
+  frame[3] = 0;
+  frame[4] = 0;
+  frame[5] = 0;
+  llc_connection_send(connection, frame, 6);
+
+  return NULL;
+}
+
+static void *
+send_success_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[1024];
+  
+  /** return snep success response package */
+  frame[0] = 0x10;    /** SNEP version */
+  frame[1] = 0x81;
+  frame[2] = 0;
+  frame[3] = 0;
+  frame[4] = 0;
+  frame[5] = 0;
+  llc_connection_send(connection, frame, 6);
+
+  return NULL;
+}
+
+static void *
+put_response(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  int len;
+
+  //Receive First Frame
+  len = receive_first_frame(connection);
+  
+  //Send Success / Continue
+  if(len>=MAX_PACKET_LENGTH)
+  {
+      send_continue_packet(connection);
+      //Receive Rest frames
+      receive_data(connection, len);
+  }
+  else
+  {
+      send_success_packet(connection);
+      printf("Success!");
+  }
+
   llc_connection_stop(connection);
+  return NULL;
+}
+
+
+static void *
+com_android_snep_service(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[] = {
+    0x10, 0x02,
+    0x00, 0x00, 0x00, 33,
+    0xd1, 0x02, 0x1c, 0x53, 0x70, 0x91, 0x01, 0x09, 0x54, 0x02,
+    0x65, 0x6e, 0x4c, 0x69, 0x62, 0x6e, 0x66, 0x63, 0x51, 0x01,
+    0x0b, 0x55, 0x03, 0x6c, 0x69, 0x62, 0x6e, 0x66, 0x63, 0x2e,
+    0x6f, 0x72, 0x67
+  };
+  uint8_t buf[1024];
+  int ret;
+  uint8_t ssap;
+
+  llc_connection_send(connection, frame, sizeof(frame));
+
+  ret = llc_connection_recv(connection, buf, sizeof(buf), &ssap);
+  if(ret>0){
+    printf("Send NDEF message done.\n");
+  }else if(ret ==  0){
+    printf("Received no data\n");
+  }else{
+    printf("Error received data.");
+  }
+  llc_connection_stop(connection);
+
   return NULL;
 }
 
@@ -155,6 +211,7 @@ main(int argc, char *argv[])
 {
   int ch;
   char *ndef_output = NULL;
+
   while ((ch = getopt(argc, argv, "ho:")) != -1) {
     switch (ch) {
       case 'h':
@@ -210,7 +267,7 @@ main(int argc, char *argv[])
   }
 
   struct llc_service *com_android_snep;
-  if (!(com_android_snep = llc_service_new_with_uri(NULL, com_android_snep_thread, "urn:nfc:sn:snep", NULL)))
+  if (!(com_android_snep = llc_service_new_with_uri(NULL, put_response/*com_android_snep_thread*/, "urn:nfc:sn:snep", NULL)))
     errx(EXIT_FAILURE, "Cannot create com.android.snep service");
 
   llc_service_set_miu(com_android_snep, 512);

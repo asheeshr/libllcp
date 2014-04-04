@@ -1,33 +1,3 @@
-/*-
- * Copyright (C) 2011, Romain Tartière
- * Copyright (C) 2013, JiapengLi
- *
- * This program is free software: you can redistribute it and/or modify it
- * under the terms of the GNU Lesser General Public License as published by the
- * Free Software Foundation, either version 3 of the License, or (at your
- * option) any later version.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>
- */
-
-/*
- * This implementation was written based on information provided by the
- * following documents:
- *
- * NFC Forum SNEP and LLCP specfication
- * 
- * Version 1 - 2013-12-04 - Modified By JiapengLi<gapleehit@gmail.com>
- *
- * http://www.nfc-forum.org/specs/
- * 
- */
-
 /*
  * $Id$
  */
@@ -45,6 +15,10 @@
 #include <llc_link.h>
 #include <mac.h>
 #include <llc_connection.h>
+
+#define MAX_PACKET_LENGTH 100
+
+FILE *fp;
 
  struct mac_link *mac_link;
  nfc_device *device;
@@ -93,6 +67,120 @@ print_usage(char *progname)
 }
 
 static void *
+send_first_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+      
+  frame[0]=0x10;
+  frame[1]=0x02;
+  frame[2]=frame[3]=frame[4]=0;
+  
+  fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
+  printf("Buffer contains : %s\n", buffer);
+  
+  frame[5]=strlen(buffer);
+  
+  while(buffer[l]!='\0')
+      frame[l+6]=buffer[l++];
+
+  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+
+  return NULL;
+}
+
+static int
+receive_packet(void * arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buf[MAX_PACKET_LENGTH+7];
+  int ret;
+  uint8_t ssap;
+  
+  ret = llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
+  if(ret>0){
+    printf("Send NDEF message done.\n");
+  }else if(ret ==  0){
+    printf("Received no data\n");
+  }else{
+    printf("Error received data.");
+  }
+
+//  llc_connection_stop(connection);
+  
+  if(buf[1]==0x81) //Success
+  {
+      return 0x81;
+  }
+  else if(buf[1]==0x80) //Continue
+  {
+      return 0x80;
+  }
+
+}
+
+
+
+static void *
+send_data(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+      
+//  frame[0]=0x10;
+//  frame[1]=0x02;
+//  frame[2]=frame[3]=frame[4]=0;
+  
+  while(fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp)) //Send remaining data
+  {
+      printf("Buffer contains : %s\n", buffer);
+  
+//  frame[5]=strlen(buffer);
+  
+      while(buffer[l]!='\0')
+	  frame[l]=buffer[l++];
+      
+      llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+  }
+
+  return NULL;
+}
+
+static void *
+put_request(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t ret;
+  
+  send_first_packet(connection); //Sends PUT request packet
+  
+  while((ret=receive_packet(connection))!=0x81)
+  {
+      send_data(connection);
+  }
+  
+  if(ret==0x81)
+  {
+      printf("Success!");
+  }
+  else
+  {
+      printf("Error :%d", ret);
+  }
+
+  llc_connection_stop(connection);
+
+  return NULL;
+}
+
+
+
+/*
+static void *
 com_android_snep_service(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
@@ -121,13 +209,24 @@ com_android_snep_service(void *arg)
   llc_connection_stop(connection);
 
   return NULL;
-}
+  }*/
+
+
+
+
+
 
 int
 main(int argc, char *argv[])
 {
   (void)argc;
   (void)argv;
+  char filename[50];
+  
+  printf("Enter file to transfer:");
+  scanf("%s", filename);
+  fp = fopen(filename, "r");
+      
 
   nfc_context *context;
   nfc_init(&context);
@@ -153,9 +252,13 @@ main(int argc, char *argv[])
   }
   
   struct llc_service *com_android_npp;
-  if (!(com_android_npp = llc_service_new(NULL, com_android_snep_service, NULL))){
+  //------------------------
+
+  if (!(com_android_npp = llc_service_new(NULL, put_request/*com_android_snep_service*/, NULL))){
     errx(EXIT_FAILURE, "Cannot create com.android.npp service");
   }
+  //-------------------------
+  
   llc_service_set_miu(com_android_npp, 512);
   llc_service_set_rw(com_android_npp, 2);
 
