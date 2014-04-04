@@ -122,6 +122,70 @@ com_android_snep_service(void *arg)
 
   return NULL;
 }
+/////////////////////////////////////////////////////
+
+FILE *fp=NULL;
+static void *
+put_request(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+////////////
+  if(fp!=NULL
+  {
+      fp=fopen("./test.txt","r");
+      if(fp==NULL)
+      {
+         printf("file now found");
+//         exit(0);
+      }
+      uint8_t buf[200];
+      fgets((char*)buf,150,fp);
+  uint8_t frame[150] ;
+  int i=0;
+  frame[0]=0x01;
+  frame[1]=0x02;
+  frame[2]=frame[3]=frame[4]=0x00;
+  for(i=6;buf[i-6]!='\0';i++)
+  {
+       frame[i]=buf[i-6];
+  }
+  frame[5]=i-6;
+///////////
+
+//  uint8_t buf[1024];
+  int ret;
+  uint8_t ssap;
+   llc_connection_send(connection, frame, sizeof(frame));
+
+  ret = llc_connection_recv(connection, buf, sizeof(buf), &ssap);
+  if(ret>0){
+    printf("Send NDEF message done.\n");
+  }else if(ret ==  0){
+    printf("Received no data\n");
+  }else{
+    printf("Error received data.");
+  }
+//  llc_connection_stop(connection);
+
+  return NULL;
+}
+
+
+void menu()
+{
+	int i;
+	printf("enter  get(1) or put(2)");
+	scanf("%d",&i);
+	return(i<3 && i>0)?i:-1;
+}
+
+void put()
+{
+  if (!(com_android_npp = llc_service_new(NULL, put_request, NULL))){
+    errx(EXIT_FAILURE, "Cannot create com.android.npp service");
+  }
+}
+////////////////////////////////////////////////////
 
 int
 main(int argc, char *argv[])
@@ -131,7 +195,7 @@ main(int argc, char *argv[])
 
   nfc_context *context;
   nfc_init(&context);
-
+  int option=menu();
   if (llcp_init() < 0)
     errx(EXIT_FAILURE, "llcp_init()");
 
@@ -151,11 +215,11 @@ main(int argc, char *argv[])
   if (!mac_link){
     errx(EXIT_FAILURE, "Cannot create MAC link");
   }
-  
   struct llc_service *com_android_npp;
   if (!(com_android_npp = llc_service_new(NULL, com_android_snep_service, NULL))){
     errx(EXIT_FAILURE, "Cannot create com.android.npp service");
   }
+
   llc_service_set_miu(com_android_npp, 512);
   llc_service_set_rw(com_android_npp, 2);
 
@@ -176,8 +240,27 @@ main(int argc, char *argv[])
   if (llc_connection_connect(con) < 0)
     errx(EXIT_FAILURE, "Cannot connect llc_connection");
 
-  llc_connection_wait(con, NULL);
 
+/////////////////////////////
+  switch(option)
+  {
+       case 1:put();
+          // put called
+          break; 
+       case 2:get();
+         // get called
+          break;
+  }
+
+  llc_connection_stop(connection);
+
+
+/////////////////////////////
+
+
+
+  llc_connection_wait(con, NULL);
+// closing connection
   llc_link_deactivate(llc_link);
 
   mac_link_free(mac_link);
