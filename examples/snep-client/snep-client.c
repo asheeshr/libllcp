@@ -73,21 +73,24 @@ send_first_packet(void *arg)
   uint8_t frame[107];
   uint8_t buffer[MAX_PACKET_LENGTH + 1];
   uint8_t l=0;
-      
+  fseek(fp, 0L, SEEK_END);
+  int sz = ftell(fp);
+  fseek(fp, -(sz) ,SEEK_END);      
   frame[0]=0x10;
   frame[1]=0x02;
   frame[2]=frame[3]=frame[4]=0;
   
   fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
   printf("Buffer contains : %s\n", buffer);
-  
-  frame[5]=strlen(buffer);
-  
+
+  // frame[5]=strlen(buffer);
+  frame[5]=sz;
+
   while(buffer[l]!='\0')
       frame[l+6]=buffer[l++];
 
   llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
-
+  printf("\nsent\n");
   return NULL;
 }
 
@@ -99,23 +102,26 @@ receive_packet(void * arg)
   int ret;
   uint8_t ssap;
   
-  ret = llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
-  if(ret>0){
+//  ret = 
+  llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
+  /* if(ret>0){
     printf("Send NDEF message done.\n");
   }else if(ret ==  0){
     printf("Received no data\n");
   }else{
     printf("Error received data.");
   }
-
+  */
 //  llc_connection_stop(connection);
   
   if(buf[1]==0x81) //Success
   {
+      printf("\nsuccess");
       return 0x81;
   }
   else if(buf[1]==0x80) //Continue
   {
+      printf("continue");
       return 0x80;
   }
 
@@ -128,21 +134,23 @@ send_data(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t frame[107];
-  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  char buffer[MAX_PACKET_LENGTH + 1];
   uint8_t l=0;
       
-//  frame[0]=0x10;
-//  frame[1]=0x02;
-//  frame[2]=frame[3]=frame[4]=0;
-  
-  while(fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp)) //Send remaining data
+///*
+  frame[0]=0x10;
+  frame[1]=0x02;
+  frame[2]=frame[3]=frame[4]=0;
+//*/
+  while(feof(fp)==0) //Send remaining data
   {
+      fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
       printf("Buffer contains : %s\n", buffer);
   
-//  frame[5]=strlen(buffer);
+      frame[5]=strlen(buffer);
   
       while(buffer[l]!='\0')
-	  frame[l]=buffer[l++];
+	  frame[l+6]=buffer[l++];
       
       llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
   }
@@ -156,10 +164,13 @@ put_request(void *arg)
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t ret;
   
+  printf("Sending PUT request\n");
   send_first_packet(connection); //Sends PUT request packet
   
+  printf("Waiting for response\n");
   while((ret=receive_packet(connection))!=0x81)
   {
+      printf("Sending data");
       send_data(connection);
   }
   
