@@ -20,6 +20,8 @@
 #define MAX_PACKET_LENGTH 100
 
 FILE *fp;
+FILE *info_stream=NULL;
+FILE *ndef_stream=NULL;
 
  struct mac_link *mac_link;
  nfc_device *device;
@@ -66,7 +68,7 @@ print_usage(char *progname)
 {
   fprintf(stderr, "usage: %s\n", progname);
 }
-
+/////// put started
 static void *
 send_first_packet(void *arg)
 {
@@ -188,6 +190,131 @@ put_request(void *arg)
 
   return NULL;
 }
+///////put ended
+
+
+///////get started
+static void *
+g_send_first_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  
+  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+  frame[0]=0x10;
+  frame[1]=0x01;
+  frame[2]=frame[3]=frame[4]=0;
+   frame[5]=/*sz*/9;
+  frame[6]=frame[7]=frame[8]=0;
+  frame[9]=200;
+  frame[10]=0xD8;
+  frame[11]=frame[12]=frame[13]=frame[14]=0;
+  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+  printf("\nsent\n");
+  return NULL;
+}
+
+static int
+g_receive_first_packet(void * arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buf[MAX_PACKET_LENGTH+7];
+  int ret;
+  uint8_t ssap;
+  
+//  ret = 
+  llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
+  /* if(ret>0){
+    printf("Send NDEF message done.\n");
+  }else if(ret ==  0){
+    printf("Received no data\n");
+  }else{
+    printf("Error received data.");
+  }
+  */
+//  llc_connection_stop(connection);
+    int size=buf[5];
+  char buffer[100];
+  int l=0;
+  while(buf[l+6]!='\0')
+    {
+      buffer[l]=buf[l+6];
+      l++;
+    }
+  printf("%s",buffer);
+  return size;
+}
+
+
+static void *
+send_continue_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[1024];
+  
+  /** return snep continue response package */
+  frame[0] = 0x10;    /** SNEP version */
+  frame[1] = 0x80;
+  frame[2] = 0;
+  frame[3] = 0;
+  frame[4] = 0;
+  frame[5] = 0;
+  llc_connection_send(connection, frame, 6);
+
+  return NULL;
+}
+
+static void*
+receive_data(void *arg, int len)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buffer[107];
+  int rec_len;
+  int ndef_length;
+  int data_len = len - MAX_PACKET_LENGTH;
+  
+  while(data_len>0)
+  {
+      llc_connection_recv(connection, buffer, sizeof(buffer), NULL);
+      data_len-=MAX_PACKET_LENGTH;
+      size_t n = 0;
+      char ndef_msg[101];
+      shexdump(ndef_msg, buffer + 6, ndef_length);
+      fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length,ndef_msg);
+  }
+
+  return NULL;
+}
+
+static void *
+get_request(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  int len;
+
+  //Receive First Frame
+  printf("\nsending first packet");
+  g_send_first_packet(connection);
+  printf("\nreceiving first frame");
+  len=g_receive_first_packet(connection);
+  //Send Success / Continue
+  if(len>=MAX_PACKET_LENGTH)
+  {
+    printf("\n sendinf continue");
+      send_continue_packet(connection);
+      //Receive Rest frames
+      printf("receiving remaining data");
+      receive_data(connection, len);
+  }
+  llc_connection_stop(connection);
+  return NULL;
+}
+
+
+
+//////get ended
+
 
 FILE *fp=NULL;
 

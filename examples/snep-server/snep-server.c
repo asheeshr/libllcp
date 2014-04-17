@@ -50,9 +50,9 @@ shexdump(char *dest, const uint8_t *buf, const size_t size)
 
 FILE *info_stream = NULL;
 FILE *ndef_stream = NULL;
-
-
-int
+FILE *fp;
+///////// put response
+static int
 receive_first_frame(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
@@ -61,10 +61,10 @@ receive_first_frame(void *arg)
 
   int len;
   if ((len = llc_connection_recv(connection, buffer, sizeof(buffer), NULL)) < 0)
-    return NULL;
+    return -1;
 
   if (len < 2) // SNEP's header (2 bytes)  and NDEF entry header (5 bytes)
-    return NULL;
+    return -1;
 
   size_t n = 0;
 
@@ -81,7 +81,7 @@ receive_first_frame(void *arg)
   return buffer[5];
 }
 
-int
+static void*
 receive_data(void *arg, int len)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
@@ -165,7 +165,138 @@ put_response(void *arg)
   llc_connection_stop(connection);
   return NULL;
 }
+//////put response ended
 
+//////get response started
+
+static int
+g_send_first_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+  fseek(fp, 0L, SEEK_END);
+  int sz = ftell(fp);
+  fseek(fp, -(sz) ,SEEK_END);      
+  frame[0]=0x10;
+  frame[1]=0x00;
+  frame[2]=frame[3]=frame[4]=0;
+  
+  fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
+  printf("Buffer contains : %s\n", buffer);
+
+  // frame[5]=strlen(buffer);
+  frame[5]=sz;
+
+  while(buffer[l]!='\0')
+      frame[l+6]=buffer[l++];
+
+  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+  printf("\nsent\n");
+  return sz;
+}
+
+static void*
+g_receive_first_packet(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buffer[107];
+  int ndef_length;
+
+  int len;
+  if ((len = llc_connection_recv(connection, buffer, sizeof(buffer), NULL)) < 0)
+    return NULL;
+
+  if (len < 2) // SNEP's header (2 bytes)  and NDEF entry header (5 bytes)
+    return NULL;
+
+  size_t n = 0;
+
+  // Header
+  fprintf(info_stream, "SNEP version: %d.%d\n", (buffer[0]>>4), (buffer[0]&0x0F));
+  if (buffer[n++] != 0x10){
+    printf("snep-server is developed to support snep version 1.0, version %d.%d may be not supported.\n", (buffer[0]>>4), (buffer[0]&0x0F));
+  }
+
+  char ndef_msg[101];
+  // shexdump(ndef_msg, buffer + 6, ndef_length);
+  // fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length, ndef_msg);
+
+  // return buffer[5];
+  return NULL;
+}
+static int
+g_receive_continue(void * arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t buf[MAX_PACKET_LENGTH+7];
+  int ret;
+  uint8_t ssap;
+  
+//  ret = 
+  llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
+  
+//  llc_connection_stop(connection);
+  if(buf[1]==0x80) //Continue
+  {
+      printf("continue");
+      return 0x80;
+  }
+
+}
+
+
+
+static void *
+g_send_data(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  char buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+      
+///*
+  frame[0]=0x10;
+  frame[1]=0x02;
+  frame[2]=frame[3]=frame[4]=0;
+//*/
+  while(feof(fp)==0) //Send remaining data
+  {
+      fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
+      printf("Buffer contains : %s\n", buffer);
+  
+      frame[5]=strlen(buffer);
+  
+      while(buffer[l]!='\0')
+	  frame[l+6]=buffer[l++];
+      
+      llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+  }
+
+  return NULL;
+}
+
+static void *
+get_response(void *arg)
+{
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t ret;
+  int len;
+  printf("Sending PUT request\n");
+  g_receive_first_packet(connection); //Sends PUT request packet
+  len=g_send_first_packet(connection);
+
+  if(len>MAX_PACKET_LENGTH)
+    {
+      g_receive_continue(connection);
+      g_send_data(connection);
+    }
+ llc_connection_stop(connection);
+
+  return NULL;
+}
+//////get response ended
 
 static void *
 com_android_snep_service(void *arg)
