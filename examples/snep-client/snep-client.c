@@ -69,7 +69,7 @@ print_usage(char *progname)
   fprintf(stderr, "usage: %s\n", progname);
 }
 /////// put started
-static void *
+static int
 send_first_packet(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
@@ -83,7 +83,8 @@ send_first_packet(void *arg)
   frame[1]=0x02;
   frame[2]=frame[3]=frame[4]=0;
   
-  fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
+  fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,fp);
+buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
   printf("Buffer contains : %s\n", buffer);
 
   // frame[5]=strlen(buffer);
@@ -91,10 +92,10 @@ send_first_packet(void *arg)
 
   while(buffer[l]!='\0')
       frame[l+6]=buffer[l++];
-
+  frame[l+6+1]='\0';
   llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
   printf("\nsent\n");
-  return NULL;
+  return sz;
 }
 
 static int
@@ -133,29 +134,31 @@ receive_packet(void * arg)
 
 
 static void *
-send_data(void *arg)
+send_data(void *arg,int sz)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t frame[107];
   char buffer[MAX_PACKET_LENGTH + 1];
   uint8_t l=0;
-      
-///*
+  sz=sz-MAX_PACKET_LENGTH;
+//
   frame[0]=0x10;
   frame[1]=0x02;
   frame[2]=frame[3]=frame[4]=0;
-//*/
-  while(feof(fp)==0) //Send remaining data
+//
+  while(sz>0) //Send remaining data
   {
-      fread(buffer,sizeof(char),MAX_PACKET_LENGTH,fp);
+      printf("size remaining: %d\n",sz);
+      fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz/*MAX_PACKET_LENGTH*/,fp);
+	buffer[(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1]='\0';
       printf("Buffer contains : %s\n", buffer);
   
       frame[5]=strlen(buffer);
-  
       while(buffer[l]!='\0')
 	  frame[l+6]=buffer[l++];
-      
-      llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+      frame[l+6+1]='\0'; 
+      llc_connection_send(connection, frame,(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz /*sizeof(frame)*/); //Frame sent
+      sz=sz-MAX_PACKET_LENGTH;
   }
 
   return NULL;
@@ -166,15 +169,15 @@ put_request(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t ret;
+  int sz;
+//  printf("Sending PUT request\n");
+  sz=send_first_packet(connection); //Sends PUT request packet
   
-  printf("Sending PUT request\n");
-  send_first_packet(connection); //Sends PUT request packet
-  
-  printf("Waiting for response\n");
+//  printf("Waiting for response\n");
   while((ret=receive_packet(connection))!=0x81)
   {
-      printf("Sending data");
-      send_data(connection);
+      printf("Sending data\n");
+      send_data(connection,sz);
   }
   
   if(ret==0x81)
@@ -268,20 +271,25 @@ send_continue_packet(void *arg)
 static void*
 receive_data(void *arg, int len)
 {
+  printf("in receive data \n");
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t buffer[107];
   int rec_len;
   int ndef_length;
   int data_len = len - MAX_PACKET_LENGTH;
-  
+  printf("data length remaining: %d\n",data_len);
   while(data_len>0)
   {
+      printf("receving data\n");
       llc_connection_recv(connection, buffer, sizeof(buffer), NULL);
+      printf("received data \n");
       data_len-=MAX_PACKET_LENGTH;
       size_t n = 0;
       char ndef_msg[101];
-      shexdump(ndef_msg, buffer + 6, ndef_length);
-      fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length,ndef_msg);
+//      shexdump(ndef_msg, buffer + 6, ndef_length);
+//      fprintf(info_stream, "NDEF message received (%u bytes): %s\n", ndef_length,ndef_msg);
+      printf("next frame %s\n",buffer+6);
+      printf("data length remaining: %d \n",data_len);
   }
 
   return NULL;
@@ -298,6 +306,7 @@ get_request(void *arg)
   g_send_first_packet(connection);
   printf("\nreceiving first frame");
   len=g_receive_first_packet(connection);
+  printf("length of data %d \n",len);
   //Send Success / Continue
   if(len>=MAX_PACKET_LENGTH)
   {
@@ -326,8 +335,8 @@ main(int argc, char *argv[])
   char filename[50];
   
   printf("Enter file to transfer:");
-  scanf("%s", filename);
-  fp = fopen(filename, "r");
+//  scanf("%s", filename);
+//  fp = fopen(filename, "r");
       
 
   nfc_context *context;
@@ -355,7 +364,11 @@ main(int argc, char *argv[])
   struct llc_service *com_android_npp;
   //------------------------
 
-  if (!(com_android_npp = llc_service_new(NULL, put_request/*com_android_snep_service*/, NULL))){
+/*  if (!(com_android_npp = llc_service_new(NULL, put_request/*com_android_snep_service*//*, NULL))){
+    errx(EXIT_FAILURE, "Cannot create com.android.npp service");
+  }
+*/
+  if (!(com_android_npp = llc_service_new(NULL, get_request/*com_android_snep_service*/, NULL))){
     errx(EXIT_FAILURE, "Cannot create com.android.npp service");
   }
   //-------------------------
