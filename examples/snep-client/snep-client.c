@@ -189,7 +189,7 @@ put_request(void *arg)
       printf("Error :%d", ret);
   }
 
-  llc_connection_stop(connection);
+  //llc_connection_stop(connection);
 
   return NULL;
 }
@@ -245,6 +245,7 @@ g_receive_first_packet(void * arg)
       buffer[l]=buf[l+6];
       l++;
     }
+    buffer[l+1]='\0';
   printf("%s",buffer);
   return size;
 }
@@ -316,13 +317,36 @@ get_request(void *arg)
       printf("receiving remaining data");
       receive_data(connection, len);
   }
-  llc_connection_stop(connection);
+//   llc_connection_stop(connection);
   return NULL;
 }
 
 
 
 //////get ended
+
+static void *
+multi_protocol(void * arg)
+{
+struct llc_connection *connection = (struct llc_connection *) arg;
+
+int flag=2;
+do{
+
+    printf("************GET*********************\n");
+    get_request(arg);
+
+    fseek(fp, 0, SEEK_SET);
+
+    printf("*************PUT********************\n");
+    put_request(arg);
+    
+    printf("Done\n");
+    flag--;
+}while(flag);
+ llc_connection_stop(connection);
+
+}
 
 
 FILE *fp=NULL;
@@ -335,8 +359,8 @@ main(int argc, char *argv[])
   char filename[50];
   
   printf("Enter file to transfer:");
-//  scanf("%s", filename);
-//  fp = fopen(filename, "r");
+  scanf("%s", filename);
+  fp = fopen(filename, "r");
       
 
   nfc_context *context;
@@ -355,22 +379,34 @@ main(int argc, char *argv[])
   if (!llc_link) {
     errx(EXIT_FAILURE, "Cannot allocate LLC link data structures");
   }
-
+  
+  int flag = 2;
+  
+  //do{
   mac_link = mac_link_new(device, llc_link);
   if (!mac_link){
     errx(EXIT_FAILURE, "Cannot create MAC link");
   }
 
+
+  
+
   struct llc_service *com_android_npp;
   //------------------------
 
-/*  if (!(com_android_npp = llc_service_new(NULL, put_request/*com_android_snep_service*//*, NULL))){
+  if (!(com_android_npp = llc_service_new(NULL, multi_protocol/*put_request/*com_android_snep_service*/, NULL))){
     errx(EXIT_FAILURE, "Cannot create com.android.npp service");
   }
-*/
-  if (!(com_android_npp = llc_service_new(NULL, get_request/*com_android_snep_service*/, NULL))){
+
+  //fseek(fp, 0, SEEK_SET);
+  
+  //if (!(com_android_npp = llc_service_new(NULL, put_request/*com_android_snep_service*/, NULL))){
+  //  errx(EXIT_FAILURE, "Cannot create com.android.npp service");
+  //}
+
+  /*  if (!(com_android_npp = llc_service_new(NULL, get_request/*com_android_snep_service*//*, NULL))){
     errx(EXIT_FAILURE, "Cannot create com.android.npp service");
-  }
+  }*/
   //-------------------------
   
   llc_service_set_miu(com_android_npp, 512);
@@ -386,17 +422,24 @@ main(int argc, char *argv[])
     errx(EXIT_FAILURE, "Cannot create llc_connection");
   }
 
+  
   if (mac_link_activate_as_initiator(mac_link) < 0) {
     errx(EXIT_FAILURE, "Cannot activate MAC link");
   }
-
+  
+  
   if (llc_connection_connect(con) < 0)
     errx(EXIT_FAILURE, "Cannot connect llc_connection");
 
+//  printf("Test");
 
 //  llc_connection_stop(connection);
-
+ 
   llc_connection_wait(con, NULL);
+  
+//  fseek(fp, 0, SEEK_SET);
+//  flag--;
+//  }while(flag);
 // closing connection
   llc_link_deactivate(llc_link);
 
