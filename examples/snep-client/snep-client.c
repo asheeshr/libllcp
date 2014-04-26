@@ -23,7 +23,6 @@ int parameters;
 char **sequence;
 
 
-
 FILE *fp;
 FILE *info_stream=NULL;
 FILE *ndef_stream=NULL;
@@ -82,7 +81,8 @@ send_first_packet(void *arg, char filename[])
     uint8_t buffer[MAX_PACKET_LENGTH + 1];
     uint8_t l=0;
     FILE *input;
-    
+    input = fopen(filename, "r");
+
     fseek(input, 0L, SEEK_END);
     int sz = ftell(input);
     fseek(input, -(sz) ,SEEK_END);      
@@ -101,7 +101,8 @@ send_first_packet(void *arg, char filename[])
     frame[l+6+1]='\0';
     llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
     printf("\nsent\n");
- 
+    
+    fclose(input);
     return sz;
 }
 
@@ -249,6 +250,8 @@ g_receive_first_packet(void * arg, char filename[])
   fprintf(output, "%s", buffer);
   printf("%s",buffer);
   
+  fclose(output);
+
   return size;
 }
 
@@ -343,32 +346,32 @@ multi_protocol(void * arg)
 	{
 
 #ifdef DEBUG_TIME
-	gettimeofday(&start, NULL);
+	    gettimeofday(&start, NULL);
 #endif
-
-	printf("************GET*********************\n");
-	get_request(arg, sequence[index+1]);
-	fseek(fp, 0, SEEK_SET);
-	
+	    
+	    printf("************GET*********************\n");
+	    get_request(arg, sequence[index+1]);
+	    fseek(fp, 0, SEEK_SET);
+	    
 #ifdef DEBUG_TIME
-	gettimeofday(&stop, NULL);
-	printf("took %lu\n", stop.tv_usec - start.tv_usec);   
+	    gettimeofday(&stop, NULL);
+	    printf("took %lu\n", stop.tv_usec - start.tv_usec);   
 #endif
 	}
-
+	
 	else if(sequence[index][0]=='p')
 	{
 	    
 #ifdef DEBUG_TIME
-	gettimeofday(&start, NULL);
+	    gettimeofday(&start, NULL);
 #endif
-	
-	printf("*************PUT********************\n");
-	put_request(arg, sequence[index+1]);
-
+	    
+	    printf("*************PUT********************\n");
+	    put_request(arg, sequence[index+1]);
+	    
 #ifdef DEBUG_TIME
-	gettimeofday(&stop, NULL);
-	printf("took %lu\n", stop.tv_usec - start.tv_usec);   
+	    gettimeofday(&stop, NULL);
+	    printf("took %lu\n", stop.tv_usec - start.tv_usec);   
 #endif
 	}
 
