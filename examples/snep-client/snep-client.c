@@ -84,7 +84,7 @@ send_first_packet(void *arg)
   frame[2]=frame[3]=frame[4]=0;
   
   fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,fp);
-buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
+  buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
   printf("Buffer contains : %s\n", buffer);
 
   // frame[5]=strlen(buffer);
