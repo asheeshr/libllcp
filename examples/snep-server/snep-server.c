@@ -188,7 +188,7 @@ put_response(void *arg, char filename[])
 
 //////get response started
 
-static int
+static long
 g_send_first_packet(void *arg, char filename[])
 {
     struct llc_connection *connection = (struct llc_connection *) arg;
@@ -197,27 +197,36 @@ g_send_first_packet(void *arg, char filename[])
     uint8_t l=0;
     FILE *input;
     input = fopen(filename, "r");
-
+    
+    if(input == NULL)
+      {
+	printf("File not found");
+	exit(0);
+      }
+    
     fseek(input, 0L, SEEK_END);
-    int sz = ftell(input);
+    long sz = ftell(input);
     fseek(input, -(sz) ,SEEK_END);      
     frame[0]=0x10;
     frame[1]=0x00;
     frame[2]=frame[3]=frame[4]=0;
   
     fread(buffer,sizeof(char),MAX_PACKET_LENGTH,input);
-    printf("Buffer contains : %s\n", buffer);
+    buffer[(sz>MAX_PACKET_LENGTH?MAX_PACKET_LENGTH:sz)] = '\0';
+    printf("Buffer contains (%d) : %s\n", sz, buffer);
 
   // frame[5]=strlen(buffer);
     frame[5]=sz;
 
     while(buffer[l]!='\0')
 	frame[l+6]=buffer[l++];
+    frame[l+6]='\0';
     
     llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
     printf("\nsent\n");
 
-    fclose(input);
+    //    fclose(input);
+
     return sz;
 }
 
@@ -312,7 +321,10 @@ get_response(void *arg, char filename[])
   int len;
   printf("Sending GET response\n");
   g_receive_first_packet(connection); //Sends GET request packet
+  printf("Back in put_Response");
   len=g_send_first_packet(connection, filename);
+  printf("Back in put_Response");
+  fflush(stdout);
 
   if(len>MAX_PACKET_LENGTH)
     {
@@ -320,7 +332,8 @@ get_response(void *arg, char filename[])
       g_send_data(connection);
     }
   //  llc_connection_stop(connection);
-
+  
+  printf("returing to multi");
   return NULL;
 }
 //////get response ended
@@ -354,7 +367,8 @@ multi_protocol(void * arg)
 	    
 	    printf("************GET*********************\n");
 	    get_response(arg, sequence[index+1]);
-	    fseek(fp, 0, SEEK_SET);
+	    printf("Back from get");;
+	    //	    fseek(fp, 0, SEEK_SET);
 	    
 #ifdef DEBUG_TIME
 	    gettimeofday(&stop, NULL);
