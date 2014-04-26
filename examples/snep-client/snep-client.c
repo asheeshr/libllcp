@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-
+#include <time.h>
 #include <llcp.h>
 #include <llc_service.h>
 #include <llc_link.h>
@@ -19,12 +19,17 @@
 
 #define MAX_PACKET_LENGTH 100
 
+int parameters;
+char **sequence;
+
+
+
 FILE *fp;
 FILE *info_stream=NULL;
 FILE *ndef_stream=NULL;
 
- struct mac_link *mac_link;
- nfc_device *device;
+struct mac_link *mac_link;
+nfc_device *device;
 
  static void
  stop_mac_link(int sig)
@@ -70,32 +75,34 @@ print_usage(char *progname)
 }
 /////// put started
 static int
-send_first_packet(void *arg)
+send_first_packet(void *arg, char filename[])
 {
-  struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t frame[107];
-  uint8_t buffer[MAX_PACKET_LENGTH + 1];
-  uint8_t l=0;
-  fseek(fp, 0L, SEEK_END);
-  int sz = ftell(fp);
-  fseek(fp, -(sz) ,SEEK_END);      
-  frame[0]=0x10;
-  frame[1]=0x02;
-  frame[2]=frame[3]=frame[4]=0;
-  
-  fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,fp);
-buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
-  printf("Buffer contains : %s\n", buffer);
+    struct llc_connection *connection = (struct llc_connection *) arg;
+    uint8_t frame[MAX_PACKET_LENGTH+7];
+    uint8_t buffer[MAX_PACKET_LENGTH + 1];
+    uint8_t l=0;
+    FILE *input;
+    
+    fseek(input, 0L, SEEK_END);
+    int sz = ftell(input);
+    fseek(input, -(sz) ,SEEK_END);      
+    frame[0]=0x10;
+    frame[1]=0x02;
+    frame[2]=frame[3]=frame[4]=0;
+    
+    fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,input);
+    buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
+    printf("Buffer contains : %s\n", buffer);
+    // frame[5]=strlen(buffer);
+    frame[5]=sz;
 
-  // frame[5]=strlen(buffer);
-  frame[5]=sz;
-
-  while(buffer[l]!='\0')
-      frame[l+6]=buffer[l++];
-  frame[l+6+1]='\0';
-  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
-  printf("\nsent\n");
-  return sz;
+    while(buffer[l]!='\0')
+	frame[l+6]=buffer[l++];
+    frame[l+6+1]='\0';
+    llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+    printf("\nsent\n");
+ 
+    return sz;
 }
 
 static int
@@ -137,7 +144,7 @@ static void *
 send_data(void *arg,int sz)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t frame[107];
+  uint8_t frame[MAX_PACKET_LENGTH+7];
   char buffer[MAX_PACKET_LENGTH + 1];
   uint8_t l=0;
   sz=sz-MAX_PACKET_LENGTH;
@@ -165,13 +172,13 @@ send_data(void *arg,int sz)
 }
 
 static void *
-put_request(void *arg)
+put_request(void *arg, char filename[])
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t ret;
   int sz;
 //  printf("Sending PUT request\n");
-  sz=send_first_packet(connection); //Sends PUT request packet
+  sz=send_first_packet(connection, filename); //Sends PUT request packet
   
 //  printf("Waiting for response\n");
   while((ret=receive_packet(connection))!=0x81)
@@ -201,7 +208,7 @@ static void *
 g_send_first_packet(void *arg)
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t frame[107];
+  uint8_t frame[MAX_PACKET_LENGTH+7];
   
   uint8_t buffer[MAX_PACKET_LENGTH + 1];
   uint8_t l=0;
@@ -219,34 +226,29 @@ g_send_first_packet(void *arg)
 }
 
 static int
-g_receive_first_packet(void * arg)
+g_receive_first_packet(void * arg, char filename[])
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   uint8_t buf[MAX_PACKET_LENGTH+7];
   int ret;
   uint8_t ssap;
-  
+  FILE *output;
+  output = fopen(filename, "w");
 //  ret = 
   llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
-  /* if(ret>0){
-    printf("Send NDEF message done.\n");
-  }else if(ret ==  0){
-    printf("Received no data\n");
-  }else{
-    printf("Error received data.");
-  }
-  */
-//  llc_connection_stop(connection);
-    int size=buf[5];
-  char buffer[100];
+  
+  int size=buf[5];
+  char buffer[MAX_PACKET_LENGTH];
   int l=0;
   while(buf[l+6]!='\0')
-    {
+  {
       buffer[l]=buf[l+6];
       l++;
-    }
-    buffer[l+1]='\0';
+  }
+  buffer[l+1]='\0';
+  fprintf(output, "%s", buffer);
   printf("%s",buffer);
+  
   return size;
 }
 
@@ -274,7 +276,7 @@ receive_data(void *arg, int len)
 {
   printf("in receive data \n");
   struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t buffer[107];
+  uint8_t buffer[MAX_PACKET_LENGTH+7];
   int rec_len;
   int ndef_length;
   int data_len = len - MAX_PACKET_LENGTH;
@@ -297,7 +299,7 @@ receive_data(void *arg, int len)
 }
 
 static void *
-get_request(void *arg)
+get_request(void *arg, char filename[])
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
   int len;
@@ -306,7 +308,7 @@ get_request(void *arg)
   printf("\nsending first packet");
   g_send_first_packet(connection);
   printf("\nreceiving first frame");
-  len=g_receive_first_packet(connection);
+  len=g_receive_first_packet(connection, filename);
   printf("length of data %d \n",len);
   //Send Success / Continue
   if(len>=MAX_PACKET_LENGTH)
@@ -328,23 +330,52 @@ get_request(void *arg)
 static void *
 multi_protocol(void * arg)
 {
-struct llc_connection *connection = (struct llc_connection *) arg;
+    struct llc_connection *connection = (struct llc_connection *) arg;
+    int index = 1;
 
-int flag=2;
-do{
-
-    printf("************GET*********************\n");
-    get_request(arg);
-
-    fseek(fp, 0, SEEK_SET);
-
-    printf("*************PUT********************\n");
-    put_request(arg);
+#ifdef DEBUG_TIME
+    struct timeval stop, start;
+#endif
     
-    printf("Done\n");
-    flag--;
-}while(flag);
- llc_connection_stop(connection);
+    while(index<parameters)
+    {	
+	if(sequence[index][0]=='g')
+	{
+
+#ifdef DEBUG_TIME
+	gettimeofday(&start, NULL);
+#endif
+
+	printf("************GET*********************\n");
+	get_request(arg, sequence[index+1]);
+	fseek(fp, 0, SEEK_SET);
+	
+#ifdef DEBUG_TIME
+	gettimeofday(&stop, NULL);
+	printf("took %lu\n", stop.tv_usec - start.tv_usec);   
+#endif
+	}
+
+	else if(sequence[index][0]=='p')
+	{
+	    
+#ifdef DEBUG_TIME
+	gettimeofday(&start, NULL);
+#endif
+	
+	printf("*************PUT********************\n");
+	put_request(arg, sequence[index+1]);
+
+#ifdef DEBUG_TIME
+	gettimeofday(&stop, NULL);
+	printf("took %lu\n", stop.tv_usec - start.tv_usec);   
+#endif
+	}
+
+	index+=2;/* To skip a option and filename */
+    }
+	/**/
+    llc_connection_stop(connection);
 
 }
 
@@ -356,12 +387,31 @@ main(int argc, char *argv[])
 {
   (void)argc;
   (void)argv;
-  char filename[50];
+
+  //char filename[50];
+
+  if(argc<3) /* argc should be 3 for correct execution */
+  {
+    printf( "usage: %s filename -[p/g] filename ...", argv[0] );
+    return 0;
+  }
   
-  printf("Enter file to transfer:");
+  parameters = argc;
+  sequence = argv;
+
+  printf("The parameters received were:");
+  for(int i=1; i<parameters; i++)
+  {
+      printf("%s \n", sequence[i]);
+  }
+//  return 0;
+  
+
+  /*
+    printf("Enter file to transfer:");
   scanf("%s", filename);
   fp = fopen(filename, "r");
-      
+  */  
 
   nfc_context *context;
   nfc_init(&context);
@@ -380,16 +430,10 @@ main(int argc, char *argv[])
     errx(EXIT_FAILURE, "Cannot allocate LLC link data structures");
   }
   
-  int flag = 2;
-  
-  //do{
   mac_link = mac_link_new(device, llc_link);
   if (!mac_link){
     errx(EXIT_FAILURE, "Cannot create MAC link");
   }
-
-
-  
 
   struct llc_service *com_android_npp;
   //------------------------
@@ -430,17 +474,10 @@ main(int argc, char *argv[])
   
   if (llc_connection_connect(con) < 0)
     errx(EXIT_FAILURE, "Cannot connect llc_connection");
-
-//  printf("Test");
-
-//  llc_connection_stop(connection);
  
   llc_connection_wait(con, NULL);
   
-//  fseek(fp, 0, SEEK_SET);
-//  flag--;
-//  }while(flag);
-// closing connection
+
   llc_link_deactivate(llc_link);
 
   mac_link_free(mac_link);
