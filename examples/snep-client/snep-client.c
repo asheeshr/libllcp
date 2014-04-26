@@ -91,14 +91,14 @@ send_first_packet(void *arg, char filename[])
     frame[2]=frame[3]=frame[4]=0;
     
     fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,input);
-    buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
+    buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz)]='\0';
     printf("Buffer contains : %s\n", buffer);
     // frame[5]=strlen(buffer);
     frame[5]=sz;
 
     while(buffer[l]!='\0')
 	frame[l+6]=buffer[l++];
-    frame[l+6+1]='\0';
+    frame[l+6]='\0';
     llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
     printf("\nsent\n");
     
@@ -205,25 +205,28 @@ put_request(void *arg, char filename[])
 
 
 ///////get started
-static void *
+static void
 g_send_first_packet(void *arg)
 {
-  struct llc_connection *connection = (struct llc_connection *) arg;
-  uint8_t frame[MAX_PACKET_LENGTH+7];
+    struct llc_connection *connection = (struct llc_connection *) arg;
+    uint8_t frame[MAX_PACKET_LENGTH+7];
   
-  uint8_t buffer[MAX_PACKET_LENGTH + 1];
-  uint8_t l=0;
-  frame[0]=0x10;
-  frame[1]=0x01;
-  frame[2]=frame[3]=frame[4]=0;
-   frame[5]=/*sz*/9;
-  frame[6]=frame[7]=frame[8]=0;
-  frame[9]=200;
-  frame[10]=0xD8;
-  frame[11]=frame[12]=frame[13]=frame[14]=0;
-  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
-  printf("\nsent\n");
-  return NULL;
+    uint8_t buffer[MAX_PACKET_LENGTH + 1];
+    uint8_t l=0;
+  
+    frame[0]=0x10;
+    frame[1]=0x01;
+    frame[2]=frame[3]=frame[4]=0;
+    frame[5]=/*sz*/9;
+    frame[6]=frame[7]=frame[8]=0;
+    frame[9]=200;
+    frame[10]=0xD8;
+    frame[11]=frame[12]=frame[13]=frame[14]=0;
+    llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+    
+    printf("\nsent\n");
+
+//    return NULL;
 }
 
 static int
@@ -235,6 +238,11 @@ g_receive_first_packet(void * arg, char filename[])
   uint8_t ssap;
   FILE *output;
   output = fopen(filename, "w");
+  if(output==NULL)
+  {
+      printf("output file not found\n");
+      exit(1);
+  }
 //  ret = 
   llc_connection_recv(connection, buf, sizeof(buf), &ssap);//Continue or Success
   
@@ -246,7 +254,7 @@ g_receive_first_packet(void * arg, char filename[])
       buffer[l]=buf[l+6];
       l++;
   }
-  buffer[l+1]='\0';
+  buffer[l]='\0';
   fprintf(output, "%s", buffer);
   printf("%s",buffer);
   
@@ -301,7 +309,7 @@ receive_data(void *arg, int len)
   return NULL;
 }
 
-static void *
+static void
 get_request(void *arg, char filename[])
 {
   struct llc_connection *connection = (struct llc_connection *) arg;
@@ -311,6 +319,7 @@ get_request(void *arg, char filename[])
   printf("\nsending first packet");
   g_send_first_packet(connection);
   printf("\nreceiving first frame");
+  fflush(stdout);
   len=g_receive_first_packet(connection, filename);
   printf("length of data %d \n",len);
   //Send Success / Continue
@@ -323,7 +332,7 @@ get_request(void *arg, char filename[])
       receive_data(connection, len);
   }
 //   llc_connection_stop(connection);
-  return NULL;
+//  return NULL;
 }
 
 
@@ -351,7 +360,7 @@ multi_protocol(void * arg)
 	    
 	    printf("************GET*********************\n");
 	    get_request(arg, sequence[index+1]);
-	    fseek(fp, 0, SEEK_SET);
+//	    fseek(fp, 0, SEEK_SET);
 	    
 #ifdef DEBUG_TIME
 	    gettimeofday(&stop, NULL);
