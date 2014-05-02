@@ -76,6 +76,32 @@ print_usage(char *progname)
 static int
 send_first_packet(void *arg, char filename[])
 {
+<<<<<<< HEAD
+  struct llc_connection *connection = (struct llc_connection *) arg;
+  uint8_t frame[107];
+  uint8_t buffer[MAX_PACKET_LENGTH + 1];
+  uint8_t l=0;
+  fseek(fp, 0L, SEEK_END);
+  int sz = ftell(fp);
+  fseek(fp, -(sz) ,SEEK_END);      
+  frame[0]=0x10;
+  frame[1]=0x02;
+  frame[2]=frame[3]=frame[4]=0;
+  
+  fread(buffer,sizeof(char),(sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH:sz,fp);
+  buffer[((sz>MAX_PACKET_LENGTH)?MAX_PACKET_LENGTH+1:sz+1)]='\0';
+  printf("Buffer contains : %s\n", buffer);
+
+  // frame[5]=strlen(buffer);
+  frame[5]=sz;
+
+  while(buffer[l]!='\0')
+      frame[l+6]=buffer[l++];
+  frame[l+6+1]='\0';
+  llc_connection_send(connection, frame, sizeof(frame)); //Frame sent
+  printf("\nsent\n");
+  return sz;
+=======
     struct llc_connection *connection = (struct llc_connection *) arg;
     uint8_t frame[MAX_PACKET_LENGTH+7];
     uint8_t buffer[MAX_PACKET_LENGTH + 1];
@@ -104,6 +130,7 @@ send_first_packet(void *arg, char filename[])
     
     fclose(input);
     return sz;
+>>>>>>> 45e226cae38b55b6552f2e8255cad8a94835ae88
 }
 
 static int
